@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>脱出速度・軌道投入物理シミュレーション</title>
+<script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-950 min-h-screen flex flex-col items-center p-4">
+<div class="w-full max-w-lg">
+  <h1 class="text-xl font-bold text-blue-400 text-center mb-1">脱出速度・軌道投入シミュレーション</h1>
+  <p class="text-gray-500 text-center text-xs mb-3">v = √(2GM/r) ― 惑星重力場の軌道力学</p>
+
+  <canvas id="canvas" class="w-full rounded-xl border border-gray-800 bg-gray-950" width="500" height="420"></canvas>
+
+  <div class="bg-gray-900 rounded-xl p-3 mt-3 space-y-2 text-xs">
+    <div class="grid grid-cols-2 gap-3">
+      <div>
+        <label class="text-gray-400 block mb-1" for="planet-select">惑星:</label>
+        <select id="planet-select" onchange="updatePlanet()" class="w-full bg-gray-800 text-white rounded px-2 py-1" aria-label="惑星を選択">
+          <option value="earth">地球</option>
+          <option value="mars">火星</option>
+          <option value="moon">月</option>
+          <option value="jupiter">木星</option>
+          <option value="mercury">水星</option>
+        </select>
+      </div>
+      <div>
+        <label class="text-gray-400 block mb-1" for="angle-slider">打ち出し角度: <span id="angle-label">45</span>°</label>
+        <input type="range" id="angle-slider" min="1" max="89" value="45" class="w-full" aria-label="打ち出し角度">
+      </div>
+    </div>
+    <div>
+      <label class="text-gray-400 block mb-1" for="speed-pct">速度: <span id="speed-pct-label">80</span>% (脱出速度比) — <span id="abs-speed" class="text-blue-300">9.0 km/s</span></label>
+      <input type="range" id="speed-pct" min="10" max="130" value="80" class="w-full" aria-label="脱出速度比">
+    </div>
+    <button onclick="launch()" class="w-full bg-blue-700 hover:bg-blue-600 text-white py-2 rounded-xl font-bold">🚀 発射</button>
+  </div>
+
+  <div id="info-box" class="bg-gray-900 rounded-xl p-3 mt-2 text-xs text-gray-400">
+    <span id="planet-info"></span>
+    <span class="ml-3 text-blue-300" id="escape-info"></span>
+  </div>
+</div>
+
+<script>
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+const W = 500, H = 420;
+const CX = W/2, CY = H*0.6; // planet center
+
+const planets = {
+  earth:   { name:'地球', g:9.81, r:6371, mass:5.97e24, color:'#2255ff', glowColor:'#88aaff', escapeKms:11.2 },
+  mars:    { name:'火星', g:3.72, r:3390, mass:6.39e23, color:'#cc4411', glowColor:'#ff8866', escapeKms:5.0 },
+  moon:    { name:'月',   g:1.62, r:1737, mass:7.35e22, color:'#aaaaaa', glowColor:'#dddddd', escapeKms:2.4 },
+  jupiter: { name:'木星', g:24.8, r:69911, mass:1.90e27, color:'#cc8833', glowColor:'#ffcc66', escapeKms:59.5 },
+  mercury: { name:'水星', g:3.7,  r:2440, mass:3.30e23, color:'#998877', glowColor:'#ccbbaa', escapeKms:4.3 },
+};
+
+let currentPlanet = planets.earth;
+let animId = null;
+
+const planetRadius = 60; // canvas pixels
+
+function updatePlanet() {
+  currentPlanet = planets[document.getElementById('planet-select').value];
+  updateInfo();
+  drawScene([]);
+}
+
+function updateInfo() {
+  const pct = parseInt(document.getElementById('speed-pct').value);
+  const absSpeed = (currentPlanet.escapeKms * pct / 100).toFixed(1);
+  document.getElementById('planet-info').textContent = currentPlanet.name + ' 表面重力: ' + currentPlanet.g + ' m/s²';
+  document.getElementById('escape-info').textContent = '脱出速度: ' + currentPlanet.escapeKms + ' km/s';
+  document.getElementById('abs-speed').textContent = absSpeed + ' km/s';
+  document.getElementById('speed-pct-label').textContent = pct;
+  document.getElementById('angle-label').textContent = document.getElementById('angle-slider').value;
+}
+
+function drawScene(trail) {
+  ctx.fillStyle = '#050510';
+  ctx.fillRect(0, 0, W, H);
+
+  // Stars
+  ctx.fillStyle = '#ffffff44';
+  for (let i = 0; i < 100; i++) {
+    const sx = (i * 137.5) % W;
+    const sy = (i * 73.1) % H;
+    ctx.fillRect(sx, sy, 1, 1);
+  }
+
+  // Orbit rings
+  ctx.strokeStyle = '#ffffff11';
+  ctx.lineWidth = 1;
+  [80, 120, 160, 200, 250].forEach(r => {
+    ctx.beginPath();
+    ctx.arc(CX, CY, r, 0, Math.PI * 2);
+    ctx.stroke();
+  });
+
+  // Planet glow
+  const grd = ctx.createRadialGradient(CX, CY, planetRadius * 0.5, CX, CY, planetRadius * 2);
+  grd.addColorStop(0, currentPlanet.glowColor + '44');
+  grd.addColorStop(1, 'transparent');
+  ctx.beginPath();
+  ctx.arc(CX, CY, planetRadius * 2, 0, Math.PI * 2);
+  ctx.fillStyle = grd;
+  ctx.fill();
+
+  // Planet
+  ctx.beginPath();
+  ctx.arc(CX, CY, planetRadius, 0, Math.PI * 2);
+  ctx.fillStyle = currentPlanet.color;
+  ctx.fill();
+
+  // Trail
+  if (trail.length > 1) {
+    ctx.beginPath();
+    ctx.moveTo(trail[0][0], trail[0][1]);
+    for (let i = 1; i < trail.length; i++) ctx.lineTo(trail[i][0], trail[i][1]);
+    ctx.strokeStyle = '#ffff8888';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    // Dot at current pos
+    const last = trail[trail.length-1];
+    ctx.beginPath();
+    ctx.arc(last[0], last[1], 3, 0, Math.PI * 2);
+    ctx.fillStyle = '#ffff88';
+    ctx.fill();
+  }
+
+  // Labels
+  ctx.fillStyle = '#8888aa';
+  ctx.font = '11px monospace';
+  ctx.fillText(currentPlanet.name, CX - 15, CY + 4);
+}
+
+function launch() {
+  if (animId) cancelAnimationFrame(animId);
+  const pct = parseInt(document.getElementById('speed-pct').value) / 100;
+  const angleDeg = parseInt(document.getElementById('angle-slider').value);
+  const angleRad = angleDeg * Math.PI / 180;
+  const escKms = currentPlanet.escapeKms;
+  const speedKms = escKms * pct;
+  const g = currentPlanet.g;
+
+  // Simulation in screen coords
+  // scale: 1 canvas pixel ~ 50km
+  const scale = 50; // km per pixel
+  const gPix = g / (scale * 1000) * (1); // gravitational deceleration in pixels/frame^2 (simplified)
+
+  // Start position on surface
+  const startX = CX + planetRadius * Math.cos(Math.PI - angleRad);
+  const startY = CY - planetRadius * Math.sin(angleRad);
+
+  const speedPix = speedKms * 1000 / scale * 0.015; // scale to canvas
+  let vx = speedPix * Math.cos(angleRad);
+  let vy = -speedPix * Math.sin(angleRad);
+
+  let x = startX, y = startY;
+  const trail = [[x, y]];
+
+  function step() {
+    for (let i = 0; i < 3; i++) {
+      const dx = x - CX;
+      const dy = y - CY;
+      const dist = Math.sqrt(dx*dx + dy*dy);
+      const distKm = dist * scale;
+      // Gravitational acceleration: g * (R/r)^2
+      const geff = gPix * Math.pow(planetRadius * scale / distKm, 2);
+      const ax = -geff * dx / dist;
+      const ay = -geff * dy / dist;
+      vx += ax;
+      vy += ay;
+      x += vx;
+      y += vy;
+      trail.push([x, y]);
+      if (trail.length > 1000) trail.shift();
+    }
+    drawScene(trail);
+    const dist = Math.sqrt((x-CX)**2 + (y-CY)**2);
+    if (dist < planetRadius || x < -100 || x > W+100 || y < -200 || y > H+200) {
+      drawScene(trail);
+      return;
+    }
+    animId = requestAnimationFrame(step);
+  }
+  step();
+}
+
+document.getElementById('speed-pct').addEventListener('input', updateInfo);
+document.getElementById('angle-slider').addEventListener('input', updateInfo);
+document.getElementById('planet-select').addEventListener('change', updatePlanet);
+
+updateInfo();
+drawScene([]);
+</script>
+</body>
+</html>
